@@ -1,35 +1,32 @@
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
 from os.path import exists
+from fake_useragent import UserAgent
+from tqdm import tqdm
 import csv
+import re
 import time
 
 url_csv_file = 'ContractorURLs-SmallBatch.csv'
-
 export_csv_filename = 'ROC-Addresses.csv'
 
-# for holding the resultant list
-#element_list = []
-
+# For storing values that will be written to csv
 page_list = []
 address_list = []
-#roc_addresses = {}
 
-roc_addresses_test = {
-    'https://azroc.my.site.com/AZRoc/s/contractor-search?licenseId=a0o8y000000NOP9AAO': '175 W Quail Springs Rd, Cottonwood, AZ, 86326',
-    'https://azroc.my.site.com/AZRoc/s/contractor-search?licenseId=a0o8y0000004COZAA2': '175 W Quail Springs Rd, Cottonwood, AZ, 86327',
-    'https://azroc.my.site.com/AZRoc/s/contractor-search?licenseId=a0ot0000000Ng23AAC': '175 W Quail Springs Rd, Cottonwood, AZ, 86328'
-}
+# ChromeDriver options
+options = Options()
+options.headless = True
+options.add_experimental_option('excludeSwitches', ['enable-logging'])
 
 # Check if export csv exists. If so, get values already gone over so we can skip them and continue adding new addresses where it left off
 page_black_list = []
 
 if (exists(export_csv_filename)):
-    print("Exported CSV found, will resume writing values.")
+    tqdm.write("Exported CSV found, will resume writing values.")
     with open(export_csv_filename, 'r', newline='') as f:
         reader = csv.reader(f)
         for row in reader:
@@ -43,31 +40,62 @@ with open(url_csv_file, 'r', newline='') as f:
         if row[0] not in page_black_list:
             page_list.append(row[0])
 
+regex_err_ct = 0
+
+def regex_search(html):
+    global regex_err_ct
+    regex_find_addr = "\d{2,5} .+ \d{5}"
+    regex_find_po = "(PO|P\.O\.)+(\w|\d|\s){1,5}\d{2,5}.+\d{5}"
+    # Remove Returns / Newlines
+    html_string = html.replace('\n', ' ')
+    # Search for address
+    str_address = re.search(regex_find_addr, html_string, flags=re.I)
+    # Search for PO Box
+    po_box = re.search(regex_find_po, html_string, flags=re.I)
+
+    if str_address:
+        return str_address.group()
+    elif po_box:
+        return po_box.group()
+    else:
+        regex_err_ct += 1
+        tqdm.write('Error: RegEx unable to get address. ')
+        return 'ERROR >>> RegEx unable to get address. ' + html_string
+
+el_locator_err_ct = 0
+
 # I'm using chrome driver here instead of bs4 because I need to scrape dynamically generated html
 def scrape_address(url): 
-    with webdriver.Chrome(service=Service(ChromeDriverManager().install())) as driver:
+    global el_locator_err_ct
+    user_agent = UserAgent().random
+    options.add_argument(f'user-agent={user_agent}')
+    with webdriver.Chrome(options=options) as driver:
         driver.get(url)
+        tqdm.write('UA: ' + user_agent)
         try:
-            address_element = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.XPATH, '//*[@id="ServiceCommunityTemplate"]/div[2]/div/div/div/div/div[3]/div/div/div/div/div[2]/div[5]/div[1]/div/table/tr[2]/td/b/lightning-formatted-rich-text/span'))
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, 'table.slds-table'))
             )
-            address = address_element.find_elements(By.TAG_NAME, 'p')
-            return address[0].text + ', ' + address[1].text
         except: 
-            return "ERROR >>> Address Element Not Found"        
+            el_locator_err_ct += 1
+            tqdm.write('Error: Address element not found. ')
+            mailing_address = 'ERROR >>> Address Element Not Found'
+        else:
+            time.sleep(1)
+            table = driver.find_element(By.CSS_SELECTOR, 'table.slds-table')
+            #table_txt = address_container
+            mailing_address = regex_search(table.text)
+        finally:
+            return mailing_address   
 
-def test_scrape(p):
-    return roc_addresses_test[p]
-
-for page in page_list:
-    #addr = scrape_address(page)
-    addr = test_scrape(page)
+for page in tqdm(page_list, desc='Progress: '):
+    addr = scrape_address(page)
     address_list.append(addr)
 
 # Write new CSV file with page urls and addresses
-with open(export_csv_filename, 'w', newline='') as csvfile:
+with open(export_csv_filename, 'a', newline='') as csvfile:
     writer = csv.writer(csvfile)
     for i in range(len(page_list)):
         writer.writerow([page_list[i], address_list[i]])
 
-#print(roc_addresses.items())
+print('Process complete. \n' + str(regex_err_ct) + ' RegEx Errors. \n' + str(el_locator_err_ct) + ' Element Locator Errors.')
