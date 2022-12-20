@@ -59,7 +59,7 @@ def regex_search(html):
         return po_box.group()
     else:
         regex_err_ct += 1
-        tqdm.write('Error: RegEx unable to get address. ')
+        tqdm.write('RegEx Error: Unable to get address from this string: ' + html_string)
         return 'ERROR >>> RegEx unable to get address. ' + html_string
 
 el_locator_err_ct = 0
@@ -71,14 +71,14 @@ def scrape_address(url):
     options.add_argument(f'user-agent={user_agent}')
     with webdriver.Chrome(options=options) as driver:
         driver.get(url)
-        tqdm.write('UA: ' + user_agent)
+        #tqdm.write('UA: ' + user_agent)
         try:
             WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, 'table.slds-table'))
             )
         except: 
             el_locator_err_ct += 1
-            tqdm.write('Error: Address element not found. ')
+            tqdm.write('Location Error: Address element not found on this page: ' + url)
             mailing_address = 'ERROR >>> Address Element Not Found'
         else:
             time.sleep(1)
