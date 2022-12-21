@@ -10,7 +10,7 @@ import csv
 import re
 import time
 
-url_csv_file = 'ContractorURLs-SmallBatch.csv'
+url_csv_file = 'ContractorURLs-MasterList.csv'
 export_csv_filename = 'ROC-Addresses.csv'
 
 # For storing values that will be written to csv
